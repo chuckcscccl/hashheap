@@ -64,7 +64,7 @@ fn derive_hash<T:Hash+Eq>(rs:&mut RandomState, key:&T) -> usize
 }
 
 
-pub struct HashHeap<KT:Hash+Eq, VT:Ord>
+pub struct HashHeap<KT, VT>
 {
    keys: Vec<Option<KT>>,  // None means once occupied
    vals : Vec<(VT,usize)>, // with inverse hash index (for map)
