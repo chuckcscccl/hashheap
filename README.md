@@ -17,10 +17,3 @@ all cloning and Rc's, this arrangement allows search to be completed in
 (avearge-case) O(1) time.  Removing or replacing a value, which will
 also require values to be swapped up or down the heap, can be done in
 O(log n) time. 
-<br>
-**The main documentation for this create are found under struct [HashHeap].**
-<br>
-Concerning the time complexity of operations, we consider the looking up a hash table to be
-an O(1) operation, although theoretically it can be worst-case O(n) with
-concocted examples.  Thus all complexities are given as average case,
-unless otherwise noted.
