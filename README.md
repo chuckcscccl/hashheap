@@ -6,7 +6,6 @@ Consider the possibility that the priority of objects can *change.*
 This would require finding the object then moving it up or down the
 queue.  With most implementations of priority heaps this is only
 possible by removing the previous value and inserting a new one.
-
 <br>
 
 In a HashHeap, however, values are paired with keys. The keys are
