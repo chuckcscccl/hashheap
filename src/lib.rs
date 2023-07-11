@@ -13,23 +13,49 @@
 //! values are stored inside an internal vector. Heap operations that
 //! require values to be swapped must keep the hashmap consistent.
 //! While the actual implementation is a bit more complicated, as it avoids
-//! all cloning and Rc's, this arrangement allows search to be completed in
+//! all cloning, this arrangement allows search to run in
 //! (avearge-case) O(1) time.  Removing or replacing a value, which will
 //! also require values to be swapped up or down the heap, can be done in
 //! O(log n) time. 
 //!
 //! **The main documentation for this create are found under struct [HashHeap].**
 //!
-//! Concerning the time complexity of operations, we consider the looking up a hash table to be
-//! an O(1) operation, although theoretically it can be worst-case O(n) with
-//! concocted examples.  Thus all complexities are given as average case,
-//! unless otherwise noted.
-
+//! Concerning the time complexity of operations, we consider looking up a
+//! hash table to be an O(1) operation, although theoretically it can be
+//! worst-case O(n) with concocted examples.  They rarely occur in practice.
+//! Thus all complexities are given as average case, unless otherwise noted.
+//! On the other hand, worst-case scenarios for binary heaps occur easily,
+//! so we note both the average and worst-case complexities when there's a
+//! difference.
+//!
+//! Examples
+//! ```
+//! # use hashheap::*;
+//!    let mut priority_map = HashHeap::<&str,u32>::new_minheap();
+//!    priority_map.insert("A", 4);   // O(1) average, O(log n) worst
+//!    priority_map.insert("B", 2);
+//!    priority_map.insert("C", 1);
+//!    priority_map.insert("D", 3);
+//!    priority_map.insert("E", 4);
+//!    priority_map.insert("F", 5);
+//!    priority_map.insert("A", 6);   // insert can also modify
+//!    assert_eq!(priority_map.peek(), Some((&"C",&1))); // O(1)
+//!    assert_eq!(priority_map.get(&"E"), Some(&4));     // O(1)
+//!    assert_eq!(priority_map[&"F"], 5);                // O(1)
+//!    priority_map.modify(&"F", |v|{*v=4;});            // O(log n)
+//!    priority_map.remove(&"E");                        // O(log n)
+//!    assert_eq!(priority_map.pop(), Some(("C",1)));    // O(log n)
+//!    assert_eq!(priority_map.pop(), Some(("B",2)));
+//!    assert_eq!(priority_map.pop(), Some(("D",3)));
+//!    assert_eq!(priority_map.pop(), Some(("F",4)));    
+//!    assert_eq!(priority_map.pop(), Some(("A",6)));    
+//!    assert_eq!(priority_map.len(), 0);
+//! ```    
 /*
 Theory stuff:
 
 For heap of size n there are always (n+1)/2 leaves
-So there are n-(n+1)/2 = non-leaves
+So there are n-(n+1)/2 = non-leaves, not same as (n-1)/2, because of remainder
 */
 
 #![allow(dead_code)]
@@ -61,7 +87,7 @@ fn derive_hash<T:Hash+Eq>(rs:&mut RandomState, key:&T) -> usize
    let mut bs = rs.build_hasher();
    key.hash(&mut bs);
    bs.finish() as usize
-}
+} // used by autohash
 
 
 pub struct HashHeap<KT, VT>
@@ -96,10 +122,20 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
     hh
   }//with_capacity
 
-  /// convenient way to create a min-hashheap with default capacity 16
+  /// convenient way to create an empty min-hashheap with default capacity 16
   pub fn new_minheap() -> HashHeap<KT,VT> { Self::with_capacity(0,false) }
-  /// convenient way to create a max-hashheap with default capacity 16  
+  /// convenient way to create an empty max-hashheap with default capacity 16  
   pub fn new_maxheap() -> HashHeap<KT,VT> { Self::with_capacity(0,true) }
+
+  /// creates a min/max hashheap from a vector of key-value pairs.  This
+  /// operation takes O(n) time, where n is the length of vector, as it uses
+  /// the well-known *heapify* algorithm.  The second, bool argument determines
+  /// if the heap portion of the structure is a maxheap (true) or minheap (false)
+  pub fn from_pairs(kvpairs:Vec<(KT,VT)>, maxheap:bool) -> HashHeap<KT,VT> {
+     let mut hh = Self::with_capacity(kvpairs.len()+1,maxheap);
+     hh.heapify(kvpairs);
+     hh
+  }//from_pairs
 
   /// This function allows the user to override the default hasher
   /// provided by the Hash trait with an arbitrary function.  The
@@ -113,7 +149,18 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
 
   /// Override the default rehash method, which implements linear probing.
   /// The given function take the original hash value as the first
-  /// argument and the number of collisions as the second argument.
+  /// argument and the number of collisions as the second argument.  The
+  /// internal representation uses the hasher from the Hash trait to compute
+  /// an index, which becomes the key to a hashmap from *indices* to locations
+  /// of keys and values.  Collisions are therefore resolved by a rehashing.
+  /// Example for setting a quadratic probing rehash function:
+  /// ```
+  /// # use hashheap::*;
+  ///   let mut table = HashHeap::<&str,i32>::new_minheap();
+  ///   table.set_rehash(|h,c|h+c*c/2 + c/2); 
+  /// ```
+  /// The calculated hash value does not index a vector but a rust HashMap with
+  /// indices as keys, so there's no issue with out-of-bounds hash values.
   pub fn set_rehash(&mut self, rh: fn(usize,usize)->usize) -> bool {
     if self.vals.len()>0 {return false;}  
     self.rehash = rh;
@@ -133,7 +180,6 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
   }//set_cmp
 
   fn autohash(&self, key:&KT) -> usize {
-
      self.userhash
          .map_or(derive_hash(&mut *self.autostate.borrow_mut(),key),
                  |f|{f(key)})  
@@ -168,8 +214,8 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
    //Here, index refers to index of kmap, not of heap vector
 
   /// Add or change a key-value pair, returning the replaced pair, if
-  /// it exists.  This operation runs in **average-case O(1) time** and
-  /// worst-case O(log n) time.
+  /// it exists.  This operation runs in **average-case O(1) time and
+  /// worst-case O(log n) time**.
   /// Insertion into a heap is known to be average-case O(1) because the
   /// number of values on each higher level decreases geometrically, so that
   /// the average is bounded by a convergent infinite series.
@@ -214,6 +260,37 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
     }//else
   }//push
 
+  /// This operation replaces the top (highest priority) entry
+  /// with given key and value, and returns the previous top entry.
+  /// However, if the given key already exists, it replaces the existing
+  /// key-value with the new ones before removing the top entry.  This
+  /// operation runs in O(log n) time.
+  pub fn top_swap(&mut self, key:KT, val:VT) -> Option<(KT,VT)> {
+    if self.vals.len()==0 {
+      self.push(key,val);
+      return None;
+    }
+    let (h,exists) = self.findslot(&key);
+    if exists {  // replace key,val then pop
+      let (ki,vi) = *self.kmap.get(&h).unwrap();
+      self.keys[ki] = Some(key);
+      self.vals[vi] = (val,h);
+      self.reposition(vi);
+      return self.pop();
+    }
+    // get info about top value
+    let (_,it) = &self.vals[0];
+    let (tki,tvi) = *self.kmap.get(it).unwrap();
+    assert!(tvi==0);
+    let mut newkey = Some(key);
+    let mut newval = (val,h);
+    core::mem::swap(&mut newkey, &mut self.keys[tki]);
+    core::mem::swap(&mut newval, &mut self.vals[0]);
+    self.kmap.insert(h, (tki,0));
+    self.swapdown(0);
+    Some((newkey.unwrap(), newval.0))
+  }//swap
+
   /// Returns the key-value pair with the highest priority value (smallest
   /// or largest depending on minheap or maxheap).  This operation runs in
   /// O(1) time
@@ -242,6 +319,10 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
 
   /// returns the value associated with the given key, if it exists.
   /// This operation runs in O(1) time.
+  ///
+  /// Note that **there is no `get_mut` operation** as mutations will
+  /// require values to be repositioned in the heap.  Call instead the
+  /// [HashHeap::modify] operation.
   pub fn get(&self, key:&KT) -> Option<&VT> {  //O(1)
     if let (h,true) = self.findslot(key) {
       let (_,vi) = self.kmap[&h];
@@ -252,26 +333,32 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
 
   /// This operation applies the mutating closure to the value associated
   /// with the key, if it exists.  It then adjusts the position of the
-  /// value inside the heap.  This operation runs in O(log n) time.
-  pub fn modify<F>(&mut self, key:&KT, mapfun:F) where F : FnOnce(&mut VT)
+  /// value inside the heap.  It returns true on success and false if
+  /// the key was not found. This operation runs in O(log n) time assuming
+  /// minimal cost for calling the closure.  
+  pub fn modify<F>(&mut self, key:&KT, mapfun:F) -> bool
+      where F : FnOnce(&mut VT)
   {
     if let (h,true) = self.findslot(key) {
       let (_,vi) = self.kmap[&h];
       mapfun(&mut self.vals[vi].0);
       self.reposition(vi);
+      true
     }
+    else {false}
   }//modify
 
-  /// Removes and returns the value associated with the given key, if it
+  /// Removes and returns the key-value pair with the given key reference, if it
   /// exists.  This operation runs in O(log n) time.
-  pub fn remove(&mut self, key:&KT) -> Option<VT> {
+  pub fn remove(&mut self, key:&KT) -> Option<(KT,VT)> {
     if let (h,true) = self.findslot(key) {
       let (ki,vi) = self.kmap[&h];
       self.heapswap(vi,self.vals.len()-1);
       let (V,_) = self.vals.pop().unwrap();
-      self.reposition(vi);
-      self.keys[ki] = None;
-      Some(V)
+      if vi < self.vals.len() {self.reposition(vi);}  //vi was not popped
+      let mut K = None;
+      core::mem::swap(&mut K, &mut self.keys[ki]);
+      Some((K.unwrap(),V))
     }
     else {None}  
   }//remove
@@ -342,6 +429,29 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
     self.kmap.get_mut(&jh).map(|(_,vj)|{*vj=i;});
     // hash-index does not change- need for future lookup
   }// swap values in vals, re-associate
+
+  fn heapify(&mut self, vkv:Vec<(KT,VT)>) {
+    if self.keys.len()>0 {
+      self.keys.clear();
+      self.vals.clear();
+      self.kmap.clear();
+    }
+    let vn = vkv.len();
+    let nonleafs = vn - (vn+1)/2;
+    let mut vi = 0;
+    for (k,v) in vkv {
+      let (kh,_) = self.findslot(&k);
+      self.keys.push(Some(k));
+      self.vals.push((v,kh));
+      self.kmap.insert(kh,(vi,vi));
+      vi += 1;
+    }//for
+    vi = nonleafs;
+    while vi>0 {  // heapify loop
+      self.swapdown(vi-1);
+      vi -= 1;
+    }//while
+  }//heapify
 
   /// returns the number of key-value pairs in the HashHeap in constant time.
   pub fn len(&self)->usize { self.vals.len() }
@@ -439,7 +549,7 @@ impl<'a,KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
     }
   }//keys
 
-  /// returns an iterator over the values of the function in no particular
+  /// returns an iterator over the values of the structure in no particular
   /// order
   pub fn values(&'a self) -> ValIter<'a,VT> {
     ValIter {
@@ -448,7 +558,7 @@ impl<'a,KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
     }
   }//values
 
-  /// returns an interator over `(key,value)` pairs of the structure in
+  /// returns an iterator over `(key,value)` pairs of the structure
   /// in no particular order.
   ///
   /// Note that, because of the need to swap values up or down the
@@ -462,4 +572,43 @@ impl<'a,KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
   }
 }// impl iterators
 
+/// indexed get
+impl<KT:Hash+Eq,VT:Ord> core::ops::Index<&KT> for HashHeap<KT,VT>
+{
+  type Output = VT;
+  fn index(&self, index:&KT)-> &Self::Output
+  {
+     self.get(index).expect("key not found")
+  }
+}//impl Index
 
+/*
+
+//////////testing
+#[cfg(test)]
+mod tests {
+  use super::*;
+  #[test]
+  fn it_works() {
+    let mut priority_map = HashHeap::<&str,u32>::new_minheap();
+    priority_map.insert("A", 4);   // O(1) average, O(log n) worst
+    priority_map.insert("B", 2);
+    priority_map.insert("C", 1);
+    priority_map.insert("D", 3);
+    priority_map.insert("E", 4);
+    priority_map.insert("F", 5);
+    priority_map.insert("A", 6);   // insert can also modify
+    assert_eq!(priority_map.peek(), Some((&"C",&1))); // O(1)
+    assert_eq!(priority_map.get(&"E"), Some(&4));     // O(1)
+    assert_eq!(priority_map[&"F"], 5);                // O(1)
+    priority_map.modify(&"F", |v|{*v=4;});            // O(log n)
+    priority_map.remove(&"E");                        // O(log n)
+    assert_eq!(priority_map.pop(), Some(("C",1)));    // O(log n)
+    assert_eq!(priority_map.pop(), Some(("B",2)));
+    assert_eq!(priority_map.pop(), Some(("D",3)));
+    assert_eq!(priority_map.pop(), Some(("F",4)));    
+    assert_eq!(priority_map.pop(), Some(("A",6)));    
+    assert_eq!(priority_map.len(), 0);
+  }//it_works
+}//tests module
+*/

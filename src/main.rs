@@ -23,6 +23,7 @@ fn shash(s:&str) -> usize {
 fn main() {
   let mut gpa = HashHeap::<&'static str, u16>::new_maxheap();
   //gpa.set_hash(|s|shash(s));
+  gpa.set_rehash(|h,c|h+c*c/2 + c/2); 
   gpa.insert("larz",245);
   gpa.insert("mary",375);
   gpa.insert("narx",108);
@@ -47,6 +48,9 @@ fn main() {
 
   for k in gpa.keys() { println!("key {}",k);}
   for (k,v) in gpa.iter() {println!("key {}, value {}",k,v);}
+
+  println!("swap: {:?}", gpa.top_swap("fred",54));
+  println!("swap: {:?}", gpa.top_swap("haten",0));  
 
   while gpa.len()>0 {println!("final pop: {:?}",gpa.pop());}
 

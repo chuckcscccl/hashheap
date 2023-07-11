@@ -18,3 +18,28 @@ all cloning and Rc's, this arrangement allows search to be completed in
 (avearge-case) O(1) time.  Removing or replacing a value, which will
 also require values to be swapped up or down the heap, can be done in
 O(log n) time. 
+
+Examples:
+
+```
+    use hashheap::*;
+    let mut priority_map = HashHeap::<&str,u32>::new_minheap();
+    priority_map.insert("A", 4);   // O(1) average, O(log n) worst
+    priority_map.insert("B", 2);
+    priority_map.insert("C", 1);
+    priority_map.insert("D", 3);
+    priority_map.insert("E", 4);
+    priority_map.insert("F", 5);
+    priority_map.insert("A", 6);   // insert can also modify
+    assert_eq!(priority_map.peek(), Some((&"C",&1))); // O(1)
+    assert_eq!(priority_map.get(&"E"), Some(&4));     // O(1)
+    assert_eq!(priority_map[&"F"], 5);                // O(1)
+    priority_map.modify(&"F", |v|{*v=4;});            // O(log n)
+    priority_map.remove(&"E");                        // O(log n)
+    assert_eq!(priority_map.pop(), Some(("C",1)));    // O(log n)
+    assert_eq!(priority_map.pop(), Some(("B",2)));
+    assert_eq!(priority_map.pop(), Some(("D",3)));
+    assert_eq!(priority_map.pop(), Some(("F",4)));    
+    assert_eq!(priority_map.pop(), Some(("A",6)));    
+    assert_eq!(priority_map.len(), 0);
+```
