@@ -408,7 +408,7 @@ impl<'a,VT> Iterator for ValIter<'a,VT> {
 }// vals iterator
 
 /// This iterator is returned by the [HashHeap::iter] function
-pub struct KeyValIter<'a,KT:Hash+Eq,VT:Ord> {
+pub struct KeyValIter<'a,KT,VT> {
   hh: &'a HashHeap<KT,VT>,
   index : usize,
 }
