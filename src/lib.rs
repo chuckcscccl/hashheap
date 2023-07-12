@@ -1,4 +1,4 @@
-//! A ***HashHeap*** is a data structure that merges a priority heap with
+//! A ***[HashHeap]*** is a data structure that merges a priority heap with
 //! a hash table.  One of the drawbacks of priority queues implemented with
 //! binary heaps is that searching requires O(n) time. Other operations
 //! such as arbitrary removal or replacement of values thus also require O(n).
@@ -28,6 +28,12 @@
 
 //!
 //! **The main documentation for this create are found under struct [HashHeap].**
+//!
+//! Because the mutation of values will require them to be repositioned in
+//! the heap, certain expected methods are not available, including `get_mut`
+//! and `iter_mut`.  Instead, a [HashHeap::modify] function is provided that
+//! allows the mutation of values with a closure, and will automatically
+//! adjust their positions afterwards.
 //!
 //! Concerning the time complexity of operations, we consider looking up a
 //! hash table to be an O(1) operation, although theoretically it can be
@@ -108,7 +114,7 @@ pub struct HashHeap<KT, VT>
    kmap : HashMap<usize,(usize,usize)>, // hashindex to (ki,vi)
    lessthan : fn(&VT,&VT) -> bool,
    autostate : RefCell<RandomState>,
-   //tc:usize, // diagnostics
+   minmax: bool, // record if it's min or max heap
 }
 impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
 {
@@ -125,7 +131,7 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
       rehash: |h,c|{h+c},
       lessthan : |a,b|a<b,
       autostate: RefCell::new(RandomState::new()),
-      //tc:0,
+      minmax: maxheap,
     };
     if !maxheap {hh.lessthan = |a,b|b<a;}
     hh
@@ -151,7 +157,7 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
   /// operation is only allowed while the HashHeap is empty.  Returns
   /// true on success.
   pub fn set_hash(&mut self, h: fn(&KT)->usize) -> bool {
-    if self.vals.len()>0 {return false;}
+    if self.keys.len()>0 {return false;}
     self.userhash = Some(h);
     true
   }
@@ -171,7 +177,7 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
   /// The calculated hash value does not index a vector but a rust HashMap with
   /// indices as keys, so there's no issue with out-of-bounds hash values.
   pub fn set_rehash(&mut self, rh: fn(usize,usize)->usize) -> bool {
-    if self.vals.len()>0 {return false;}  
+    if self.keys.len()>0 {return false;}  
     self.rehash = rh;
     true
   }
@@ -181,7 +187,7 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
   /// is only allowed when the size of the HashHeap is no more than one.
   /// Returns true on success.
   pub fn set_cmp(&mut self, cmp:fn(&VT,&VT)->bool) -> bool {
-    if self.vals.len()>1 {false}
+    if self.keys.len()>1 {false}
     else {
       self.lessthan = cmp;
       true
@@ -237,8 +243,6 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
       let mut newval = (val,h);
       core::mem::swap(&mut newkey, &mut self.keys[ki]);
       core::mem::swap(&mut newval, &mut self.vals[vi]);
-      //self.keys[ki] = Some(key);
-      //self.vals[vi] = (val,h);
       self.reposition(vi);
       Some((newkey.unwrap(), newval.0))
     }//replace
@@ -254,7 +258,7 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
   }//insert
 
   /// Version of insert that does not replace existing key.
-  /// Instead, it returns false if an equivalent key already exist.
+  /// Instead, it returns false if an equivalent key already exists.
   pub fn push(&mut self, key:KT, val:VT) -> bool {
     let (h,exists) = self.findslot(&key);
     if exists { false }
@@ -326,7 +330,8 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
     Some((Kopt.unwrap(),V))
   }//pop
 
-  /// returns the value associated with the given key, if it exists.
+  /// returns the value associated with the given key, if it exists.  
+  /// Indexed access is also available, but will panic if the key is not found.
   /// This operation runs in O(1) time.
   ///
   /// Note that **there is no `get_mut` operation** as mutations will
@@ -364,7 +369,8 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
       let (ki,vi) = self.kmap[&h];
       self.heapswap(vi,self.vals.len()-1);
       let (V,_) = self.vals.pop().unwrap();
-      if vi < self.vals.len() {self.reposition(vi);}  //vi was not popped
+      //if vi < self.vals.len() {self.reposition(vi);}  //vi was not popped
+      self.reposition(vi);
       let mut K = None;
       core::mem::swap(&mut K, &mut self.keys[ki]);
       Some((K.unwrap(),V))
@@ -392,6 +398,7 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
 
   // treat as maxheap 
   fn swapup(&mut self, mut i:usize) -> usize {
+    if i>=self.vals.len() {return i;}
     let mut p = parent(i);
     while i>0 && (self.lessthan)(&self.vals[p].0 , &self.vals[i].0) {
        self.heapswap(i,p);
@@ -470,7 +477,20 @@ impl<KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
     self.kmap.reserve(additional);
     self.vals.reserve(additional);
     self.keys.reserve(additional);    
-  }
+  }//reserve
+
+  /// clears HashHeap without changing capacity.  Also resets [RandomState]
+  /// for hasher.
+  pub fn clear(&mut self) {
+    self.vals.clear();
+    self.keys.clear();
+    self.kmap.clear();
+    self.autostate.replace(RandomState::new());
+  }//clear
+
+  /// returns true if the structure is a max-hashheap and false if it's a
+  /// min-hashheap.
+  pub fn is_max_hashheap(&self) -> bool {self.minmax}
 
   /*
   pub fn diagnostic(&self) {
@@ -485,6 +505,68 @@ impl<KT:Hash+Eq, VT:Ord> Default for HashHeap<KT,VT> {
      Self::new_maxheap()
   }
 } // impl default
+
+use core::fmt::Debug;
+impl<KT:Hash+Eq+Debug, VT:Ord+Debug> Debug for HashHeap<KT,VT> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut fp = f.pad("HashHeap: [\n");
+        let width = 14;
+        for (key,val) in self.iter() {
+          fp = f.pad(&format!("  key {:?}  :  value {:?}\n",key,val));
+        }
+        fp = f.pad("]\n");
+        fp
+    }
+} // impl default
+
+
+impl<KT:Hash+Eq+Clone, VT:Ord+Clone> Clone for HashHeap<KT,VT> {
+  fn clone(&self) -> Self {
+    HashHeap {
+      keys : self.keys.clone(),
+      vals : self.vals.clone(),
+      userhash : self.userhash.clone(),
+      rehash : self.rehash.clone(),
+      kmap : self.kmap.clone(),
+      lessthan : self.lessthan.clone(),
+      autostate : RefCell::new(RandomState::new()),
+      minmax : self.minmax,
+    }
+  }//clone
+} // impl clone
+
+
+
+
+
+/// indexed get
+impl<KT:Hash+Eq,VT:Ord> core::ops::Index<&KT> for HashHeap<KT,VT>
+{
+  type Output = VT;
+  fn index(&self, index:&KT)-> &Self::Output
+  {
+     self.get(index).expect("key not found")
+  }
+}//impl Index
+
+/// The implementation of this `From` trait always returns a max-hashheap.
+/// For a min-hashheap, call instead [HashHeap::from_pairs]
+impl<KT:Hash+Eq,VT:Ord> From<Vec<(KT,VT)>> for HashHeap<KT,VT>
+{
+  fn from(v:Vec<(KT,VT)>) -> HashHeap<KT,VT> {
+    HashHeap::from_pairs(v,true)
+  }
+}
+
+/// The implementation of this `From` trait always returns a min-hashheap.
+/// For a max-hashheap, call [Iterator::collect] followed by [HashHeap::from_pairs]
+impl<KT:Hash+Eq,VT:Ord> FromIterator<(KT,VT)> for HashHeap<KT,VT>
+{
+  fn from_iter<T:IntoIterator<Item=(KT,VT)>>(iter:T) -> HashHeap<KT,VT> {
+    HashHeap::from_pairs(iter.into_iter().collect(),false)
+  }
+}
+
 
 
 ////// iterator implementations
@@ -581,17 +663,40 @@ impl<'a,KT:Hash+Eq, VT:Ord> HashHeap<KT,VT>
   }
 }// impl iterators
 
-/// indexed get
-impl<KT:Hash+Eq,VT:Ord> core::ops::Index<&KT> for HashHeap<KT,VT>
-{
-  type Output = VT;
-  fn index(&self, index:&KT)-> &Self::Output
-  {
-     self.get(index).expect("key not found")
-  }
-}//impl Index
+/// The IntoIterator for references is the same as calling [HashHeap::iter],
+/// and will therefore return references in **arbitrary order**.
+impl<'t,KT:Hash+Eq,VT:Ord> IntoIterator for &'t HashHeap<KT,VT> {
+    type Item = (&'t KT,&'t VT);
+    type IntoIter = KeyValIter<'t,KT,VT>;
 
-/*
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}//IntoIter for references
+
+/// Consuming iterator, type for [IntoIterator].  This iterator will
+/// call [HashHeap::pop] for the next (key,value) pair, and will thus
+/// return the values in **sorted order** (increasing for min-hashheap,
+/// decreasing for max-hashheap).
+pub struct IntoIter<KT,VT>(HashHeap<KT,VT>);
+impl<KT:Hash+Eq,VT:Ord> Iterator for IntoIter<KT,VT> {
+  type Item = (KT,VT);
+  fn next(&mut self) -> Option<(KT,VT)> {
+    self.0.pop()
+  }
+}//impl IntoIter
+
+/// The consuming iterator is implemented by [IntoIter] and will return
+/// the owned values in **sorted order** 
+impl<KT:Hash+Eq,VT:Ord> IntoIterator for HashHeap<KT,VT> {
+    type Item = (KT,VT);
+    type IntoIter = IntoIter<KT,VT>;
+
+    fn into_iter(self) -> Self::IntoIter {
+       IntoIter(self)
+    }
+}// consuming iterator
+
 
 //////////testing
 #[cfg(test)]
@@ -607,17 +712,16 @@ mod tests {
     priority_map.insert("E", 4);
     priority_map.insert("F", 5);
     priority_map.insert("A", 6);   // insert can also modify
-    assert_eq!(priority_map.peek(), Some((&"C",&1))); // O(1)
-    assert_eq!(priority_map.get(&"E"), Some(&4));     // O(1)
-    assert_eq!(priority_map[&"F"], 5);                // O(1)
-    priority_map.modify(&"F", |v|{*v=4;});            // O(log n)
-    priority_map.remove(&"E");                        // O(log n)
-    assert_eq!(priority_map.pop(), Some(("C",1)));    // O(log n)
-    assert_eq!(priority_map.pop(), Some(("B",2)));
-    assert_eq!(priority_map.pop(), Some(("D",3)));
-    assert_eq!(priority_map.pop(), Some(("F",4)));    
-    assert_eq!(priority_map.pop(), Some(("A",6)));    
-    assert_eq!(priority_map.len(), 0);
+    // iterator tests:
+    let mut total = 0;
+    for (key,val) in &priority_map {
+      println!("iterator key {} : val {}",key,val);
+      total += val;
+    }
+    assert_eq!(total,21);
+
+    for (key,val) in priority_map {
+      println!("consuming iterator key {} : val {}",key,val);
+    }
   }//it_works
 }//tests module
-*/

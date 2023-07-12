@@ -10,7 +10,7 @@ Conceptually, an internal HashMap maps keys to *indices* of where
 values are stored inside an internal vector. Heap operations that
 require values to be swapped must keep the hashmap consistent.
 While the actual implementation is a bit more complicated, as it avoids
-all cloning and Rc's, this arrangement allows search to be completed in
+all cloning, this arrangement allows search to be completed in
 (avearge-case) O(1) time.  Removing or replacing a value, which will
 also require values to be swapped up or down the heap, can be done in
 O(log n) time.
