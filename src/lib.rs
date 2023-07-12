@@ -529,7 +529,7 @@ impl<KT:Hash+Eq+Clone, VT:Ord+Clone> Clone for HashHeap<KT,VT> {
       rehash : self.rehash.clone(),
       kmap : self.kmap.clone(),
       lessthan : self.lessthan.clone(),
-      autostate : RefCell::new(RandomState::new()),
+      autostate : self.autostate.clone(),
       minmax : self.minmax,
     }
   }//clone

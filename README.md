@@ -42,6 +42,11 @@ Examples:
   assert_eq!(priority_map[&"F"], 5);                // O(1)
   priority_map.modify(&"F", |v|{*v=4;});            // O(log n)
   priority_map.remove(&"E");                        // O(log n)
+  let mut total = 0;
+  for (key,val) in &priority_map {
+    total += val;
+  }
+  assert_eq!(total, 16);
   assert_eq!(priority_map.pop(), Some(("C",1)));    // O(log n)
   assert_eq!(priority_map.pop(), Some(("B",2)));
   assert_eq!(priority_map.pop(), Some(("D",3)));
