@@ -88,6 +88,7 @@ use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasher, Hash, Hasher};
 
+mod inthash;
 
 const DEFAULTCAP: usize = 16;
 
