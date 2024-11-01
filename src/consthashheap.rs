@@ -1,3 +1,22 @@
+//! This module contains a new implementation of the hashed heap structure,
+//! [ConstHashHeap]. The main external difference is that the capacity
+//! of the structure must be known at compile time.
+//! However, a [ConstHashHeap::resize] function is provided to transfer
+//! entries to a structure of higher capacity.  There are also many
+//! internal changes that should improve performance.  Rust HashMaps are
+//! no longer employed anywhere.  Instead, each ConstHashHeap contains
+//! two arrays, keys and values.  The keys array contains (Option) entries of
+//! form (key,vi) where vi is the index in the values array that contains
+//! the mapped value.  The values array contains entries of the form
+//! (value,ki) where ki is the index in the keys array of the corresponding
+//! key.  The keys array is treated as a closed hashmap (open addressing)
+//! with a linear probing rehash function.  The values array is treated
+//! as a binary heap. Swapping values in the values array updates
+//! the corresponding information in the keys array using the ki index
+//! which it possesses.  The ki index does not change until the entire
+//! structure is resized.
+
+
 #![allow(dead_code)]
 #![allow(unused_variables)]
 #![allow(non_snake_case)]
@@ -13,22 +32,6 @@ use core::fmt::{Display,Debug};
 use std::collections::hash_map::RandomState;
 use core::hash::{BuildHasher, Hash, Hasher};
 
-// consthashheap
-/* new design.
-
-keys stored in inthash custom hash table.
-values in heap in the form of ?? how not to duplicate keys?
-
-Design uses const generics, so key locations never change in hash table.
-if keys shift locations, values must also shift location.
-
-inthash contains actual key -> vi index of corresponding value.
-
-heap contains entries of the form (value, ki), ki is index of where
-key is store in inthash array.
-
-keylocs array not needed, since key locations are kept in heap
-*/
 
 //global heap calculations
 fn left(i:usize) -> usize { 2*i+1 }
@@ -44,24 +47,29 @@ fn optcmp<VT:PartialOrd>(a:&Option<(VT,usize)>, b:&Option<(VT,usize)>, neg:bool)
   }
 }
 
-
+/// The default capacity of a ConstHashHeap is 1024.  Exact powers of
+/// two are recommended for other capacities.  Resizing is recommended
+/// when the [ConstHashHeap::load_factor] function returns a value greater 
+/// than 0.75.  
 #[derive(Clone, Debug)]
 pub struct ConstHashHeap<KT,VT, const CAPACITY:usize = 1024>
 {
    keys : [Option<(KT,usize)>;CAPACITY],
    vals : [Option<(VT,usize)>;CAPACITY],
-   maxhs : [usize;CAPACITY],
+   maxhashes : [usize;CAPACITY], // max number of hashes from start
    size : usize,
    autostate: RefCell<RandomState>,
    lessthan : fn(&Option<(VT,usize)>,&Option<(VT,usize)>) -> bool,
 }
 impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
 
+  /// creates a new ConstHashHeap.  The boolean argument distinguishes
+  /// maxheap and minheap, true = maxheap.
   pub fn new(maxheap:bool) -> Self {
     ConstHashHeap {
       keys : [const { None }; CAP],
       vals : std::array::from_fn(|_|None),
-      maxhs : [0;CAP],
+      maxhashes : [0;CAP],
       size : 0,
       autostate : RefCell::new(RandomState::new()),
       lessthan : if maxheap{|a,b|optcmp(a,b,true)} else {|a,b|optcmp(a,b,false)},
@@ -125,8 +133,15 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
     if k==i && both {self.swapdown(i)} else {k}
   }
 
+  /// The number of key-value pairs stored in the structure
   pub fn size(&self) -> usize {self.size}
 
+  /// Either inserts a new key-value pair into the structure,
+  /// or if a duplicate key already exists, change the value
+  /// associated with the key.  As in a hashmap, keys must be
+  /// unique.  true is returned on successful insertion and
+  /// false is returned only if capacity has been reached.
+  /// This operation takes O(log n) time.
   pub fn insert(&mut self, key:KT, val:VT) -> bool
   { 
     //if (self.size >= CAP) {return false;}
@@ -142,7 +157,7 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
           break;
         },
         Some(_) => { h = Self::rehash(h); hashes+=1; },
-        None if hashes <= self.maxhs[h0] => {
+        None if hashes <= self.maxhashes[h0] => {
           if target_index == -1 { target_index = h as isize; }
           h=Self::rehash(h);
           hashes += 1;
@@ -165,8 +180,8 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
       },
       _ => {},
     }//match
-    if hashes > self.maxhs[h0] {
-      self.maxhs[h0] = hashes;
+    if hashes > self.maxhashes[h0] {
+      self.maxhashes[h0] = hashes;
     }
     if let Some(vi) = keyfoundloc {
         self.keys[h] = Some((key,vi));
@@ -176,10 +191,14 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
     true
   }//set
 
+  /// alias for [Self::insert]
   pub fn push(&mut self, key:KT, val:VT) -> bool {  // alias for insert
      self.insert(key,val)
   }
 
+  /// returns reference to value associated with key, if it exists.
+  /// This operation is also called in the implementation of the [core::ops::Index]
+  /// trait. This is an O(log n) operation.
   pub fn get(&self, key:&KT) -> Option<&VT> {
     let mut answer = None;
     let h0 = self.hash(&key);
@@ -195,7 +214,7 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
           h=Self::rehash(h);
           hashes += 1;
         },
-        None if hashes <= self.maxhs[h0] => {
+        None if hashes <= self.maxhashes[h0] => {
           h=Self::rehash(h);
           hashes += 1;        
         }
@@ -204,7 +223,11 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
     }//loop
     answer
   }//get
-  
+
+  /// modifies the entry associated with the key, if it exists, using
+  /// the provided closure.  This procedure will adjust the position of
+  /// of the entry in the priority heap after modification. This
+  /// operation is O(log n) plus the cost of calling the closure.
   pub fn modify<F:FnOnce(&mut VT)>(&mut self, key:&KT, f:F) -> bool {
     let h0 = self.hash(&key);
     let mut h = h0;
@@ -220,7 +243,7 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
           h=Self::rehash(h);
           hashes += 1;
         },
-        None if hashes <= self.maxhs[h0] => {
+        None if hashes <= self.maxhashes[h0] => {
           h=Self::rehash(h);
           hashes += 1;        
         }
@@ -235,7 +258,9 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
     else {false}
   }// modify
 
-pub fn remove(&mut self, key:&KT) -> Option<(KT,VT)> {
+  /// remove and return the key-value pair associated with the key.
+  /// O(log n)
+  pub fn remove(&mut self, key:&KT) -> Option<(KT,VT)> {
     let mut answer = None;
     let mut keyfoundloc = None;    
     let h0 = self.hash(&key);
@@ -251,7 +276,7 @@ pub fn remove(&mut self, key:&KT) -> Option<(KT,VT)> {
           h=Self::rehash(h);
           hashes += 1;
         },
-        None if hashes <= self.maxhs[h0] => {
+        None if hashes <= self.maxhashes[h0] => {
           h=Self::rehash(h);
           hashes += 1;        
         }
@@ -274,6 +299,7 @@ pub fn remove(&mut self, key:&KT) -> Option<(KT,VT)> {
     answer
   }//remove
 
+  /// remove and return the highest-priority key-value pair
   pub fn pop(&mut self) -> Option<(KT,VT)> {
     let mut answer = None;
     if self.size < 1 { return answer; }
@@ -292,17 +318,23 @@ pub fn remove(&mut self, key:&KT) -> Option<(KT,VT)> {
     answer  
   }//pop
 
-  pub fn peek(&self) -> Option<&VT> {
+  /// returns reference to highest-priority key-value pair without
+  /// removal.  This operation is O(1).
+  pub fn peek(&self) -> Option<(&KT,&VT)> {
     if self.size < 1 { None }
     else {
-      self.vals[0].as_ref().map(|p|&p.0)
+      self.vals[0].as_ref().and_then(|vp|
+        self.keys[vp.1].as_ref().map(|kp|(&kp.0,&vp.0)))
     }
   }//peek
 
+  /// The load factor is the size divided by the capacity.  Resizing is
+  /// recommended when this factor is greater than 0.75.
   pub fn load_factor(&self) -> f32 {
     (self.size as f32) / (CAP as f32)
   }
 
+  /// moves all entries to a ConstHashHeap of a new capacity.
   pub fn resize<const NEWCAP:usize>(mut self) -> ConstHashHeap<KT,VT,NEWCAP> {
     let mut hp2 = ConstHashHeap::new(true);
     hp2.lessthan = self.lessthan;
@@ -325,7 +357,7 @@ pub fn remove(&mut self, key:&KT) -> Option<(KT,VT)> {
                },
              }//match
            }//loop
-           hp2.maxhs[h0] = hashes;
+           hp2.maxhashes[h0] = hashes;
          });
          core::mem::swap(&mut hp2.keys[h],&mut self.keys[*ki]);
          self.vals[i].as_mut().map(|p|{p.1 = h;});
@@ -335,10 +367,15 @@ pub fn remove(&mut self, key:&KT) -> Option<(KT,VT)> {
     hp2
   }//resize
 
+  /// moves all entries to a new ConstHashHeap of the same capacity. This
+  /// operation may be called after a large number of key-value pairs
+  /// had been removed, which should improve hash lookup performance.
   pub fn refresh(mut self) -> Self {
     self.resize()
   }
 
+  /// returns a non-consuming iterator over all entries in no particular
+  /// order.
   pub fn iter<'a>(&'a self) -> CHHIter<'a,KT,VT,CAP> {
     CHHIter {
       chh : self,
@@ -346,6 +383,9 @@ pub fn remove(&mut self, key:&KT) -> Option<(KT,VT)> {
     }
   }//iter
 
+  /// returns a consuming iterator over all entries in order of priority.
+  /// This iterator is equivalent to repeatedly calling [Self::pop], and
+  /// will empty the structure of all entries.
   pub fn priority_stream<'a>(&'a mut self) -> PriorityStream<'a,KT,VT,CAP> {
     PriorityStream(self)
   }
@@ -362,9 +402,9 @@ for ConstHashHeap<KT,VT,CAP>
     }
 } //impl Index
 
-
 impl<KT:Display+Debug+Hash+Eq, VT:Display+Debug+PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP>
 {
+  /// for debugging
   pub fn diagnostics(&self) {
     for i in 0..CAP {
       println!("{i}: {:?}, \t {:?} \t hash {}",&self.keys[i],&self.vals[i],
@@ -377,6 +417,7 @@ impl<KT:Display+Debug+Hash+Eq, VT:Display+Debug+PartialOrd, const CAP:usize> Con
 
 /////////////////// iterators
 
+/// Iterator for the [ConstHashHeap::iter] function
 pub struct CHHIter<'a, KT,VT, const CAP:usize>
 {
   chh : &'a ConstHashHeap<KT,VT,CAP>,
@@ -408,7 +449,7 @@ for &'a ConstHashHeap<KT,VT,CAP>
   }
 }// ref intoiter
 
-////////// consuming intoiter
+/// Iterator for the [ConstHashHeap::priority_stream] function
 pub struct PriorityStream<'a,KT,VT,const CAP:usize>(&'a mut ConstHashHeap<KT,VT,CAP>);
 impl<'a,KT: Hash + Eq, VT: PartialOrd, const CAP:usize> Iterator
 for PriorityStream<'a,KT,VT,CAP>

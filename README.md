@@ -54,3 +54,5 @@ Examples:
   assert_eq!(priority_map.pop(), Some(("A",6)));    
   assert_eq!(priority_map.len(), 0);
 ```
+
+Version 0.2 adds an alternative implementation with const capacity.

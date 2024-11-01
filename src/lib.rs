@@ -25,9 +25,10 @@
 //! algorithm as the "open" or "tentative" queue.  When a lower-cost path
 //! is found, its position in the queue must be updated.  This is possible
 //! in O(log n) time with a HashHeap.
-
 //!
-//! **The main documentation for this create are found under struct [HashHeap].**
+//! Two versions of the data structure are provided.
+//! **Their documentations are found under structs
+//! [HashHeap] and [ConstHashHeap].**
 //!
 //! Because the mutation of values will require them to be repositioned in
 //! the heap, certain expected methods are not available, including `get_mut`
@@ -89,6 +90,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasher, Hash, Hasher};
 
 pub mod consthashheap;
+pub use consthashheap::*;
 
 const DEFAULTCAP: usize = 16;
 

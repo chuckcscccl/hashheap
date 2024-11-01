@@ -3,14 +3,11 @@ name = "hashheap"
 version = "0.2.0"
 edition = "2021"
 license = "MIT"
-description = "data structure that combines a hashmap and a min/max priority heap, with main operations requiring O(1) or O(log n) time."
+description = "data structures that combine a hashmap and a min/max priority heap, with main operations requiring O(1) or O(log n) time."
 repository = "https://github.com/chuckcscccl/hashheap/"
 keywords = ["map", "heap", "hash", "priority", "queue"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-#[features]
-#serde=["dep:serde"]
-
 [dependencies]
-#serde = { version = "1.0", features = ["derive"] }
+
