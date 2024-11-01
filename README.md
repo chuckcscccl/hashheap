@@ -5,7 +5,7 @@ such as arbitrary removal or replacement of values thus also require O(n).
 <br>
 
 In a HashHeap, however, values are paired with keys. The keys are
-hashable (`:Hash+Eq`) and the values are comparable (`:Ord`).
+hashable (`:Hash+Eq`) and the values are comparable (`:PartialOrd`).
 Conceptually, an internal HashMap maps keys to *indices* of where
 values are stored inside an internal vector. Heap operations that
 require values to be swapped must keep the hashmap consistent.

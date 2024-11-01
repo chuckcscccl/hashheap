@@ -88,7 +88,7 @@ use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasher, Hash, Hasher};
 
-mod inthash;
+pub mod consthashheap;
 
 const DEFAULTCAP: usize = 16;
 
@@ -130,7 +130,7 @@ pub struct HashHeap<KT, VT> {
     autostate: RefCell<RandomState>,
     minmax: bool, // record if it's min or max heap
 }
-impl<KT: Hash + Eq, VT: Ord> HashHeap<KT, VT> {
+impl<KT: Hash + Eq, VT: PartialOrd> HashHeap<KT, VT> {
     /// creates a HashHeap with given capacity.  If the capacity is less than 1,
     /// it defaults to 16.  If the second argument is true, a maxheap is
     /// created; otherwise a minheap is created.
@@ -574,7 +574,7 @@ impl<KT: Hash + Eq, VT: Ord> HashHeap<KT, VT> {
 } // impl HashHeap
 
 //default
-impl<KT: Hash + Eq, VT: Ord> Default for HashHeap<KT, VT> {
+impl<KT: Hash + Eq, VT: PartialOrd> Default for HashHeap<KT, VT> {
     fn default() -> Self {
         Self::new_maxheap()
     }
@@ -582,7 +582,7 @@ impl<KT: Hash + Eq, VT: Ord> Default for HashHeap<KT, VT> {
 
 /*
 use core::fmt::Debug;
-impl<KT: Hash + Eq + Debug, VT: Ord + Debug> Debug for HashHeap<KT, VT> {
+impl<KT: Hash + Eq + Debug, VT: PartialOrd + Debug> Debug for HashHeap<KT, VT> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut fp = f.pad("HashHeap: [\n");
         let width = 14;
@@ -594,7 +594,7 @@ impl<KT: Hash + Eq + Debug, VT: Ord + Debug> Debug for HashHeap<KT, VT> {
     }
 } // impl default
 
-impl<KT: Hash + Eq + Clone, VT: Ord + Clone> Clone for HashHeap<KT, VT> {
+impl<KT: Hash + Eq + Clone, VT: PartialOrd + Clone> Clone for HashHeap<KT, VT> {
     fn clone(&self) -> Self {
         HashHeap {
             keys: self.keys.clone(),
@@ -611,7 +611,7 @@ impl<KT: Hash + Eq + Clone, VT: Ord + Clone> Clone for HashHeap<KT, VT> {
 */
 
 /// indexed get
-impl<KT: Hash + Eq, VT: Ord> core::ops::Index<&KT> for HashHeap<KT, VT> {
+impl<KT: Hash + Eq, VT: PartialOrd> core::ops::Index<&KT> for HashHeap<KT, VT> {
     type Output = VT;
     fn index(&self, index: &KT) -> &Self::Output {
         self.get(index).expect("key not found")
@@ -620,7 +620,7 @@ impl<KT: Hash + Eq, VT: Ord> core::ops::Index<&KT> for HashHeap<KT, VT> {
 
 /// The implementation of this `From` trait always returns a max-hashheap.
 /// For a min-hashheap, call instead [HashHeap::from_pairs]
-impl<KT: Hash + Eq, VT: Ord> From<Vec<(KT, VT)>> for HashHeap<KT, VT> {
+impl<KT: Hash + Eq, VT: PartialOrd> From<Vec<(KT, VT)>> for HashHeap<KT, VT> {
     fn from(v: Vec<(KT, VT)>) -> HashHeap<KT, VT> {
         HashHeap::from_pairs(v, true)
     }
@@ -628,7 +628,7 @@ impl<KT: Hash + Eq, VT: Ord> From<Vec<(KT, VT)>> for HashHeap<KT, VT> {
 
 /// The implementation of this `From` trait always returns a min-hashheap.
 /// For a max-hashheap, call [Iterator::collect] followed by [HashHeap::from_pairs]
-impl<KT: Hash + Eq, VT: Ord> FromIterator<(KT, VT)> for HashHeap<KT, VT> {
+impl<KT: Hash + Eq, VT: PartialOrd> FromIterator<(KT, VT)> for HashHeap<KT, VT> {
     fn from_iter<T: IntoIterator<Item = (KT, VT)>>(iter: T) -> HashHeap<KT, VT> {
         HashHeap::from_pairs(iter.into_iter().collect(), false)
     }
@@ -680,7 +680,7 @@ pub struct KeyValIter<'a, KT, VT> {
     hh: &'a HashHeap<KT, VT>,
     index: usize,
 }
-impl<'a, KT: Hash + Eq, VT: Ord> Iterator for KeyValIter<'a, KT, VT> {
+impl<'a, KT: Hash + Eq, VT: PartialOrd> Iterator for KeyValIter<'a, KT, VT> {
     type Item = (&'a KT, &'a VT);
     fn next(&mut self) -> Option<Self::Item> {
         let vn = self.hh.vals.len();
@@ -696,7 +696,7 @@ impl<'a, KT: Hash + Eq, VT: Ord> Iterator for KeyValIter<'a, KT, VT> {
     } //next
 } // key-val iterator
 
-impl<'a, KT: Hash + Eq, VT: Ord> HashHeap<KT, VT> {
+impl<'a, KT: Hash + Eq, VT: PartialOrd> HashHeap<KT, VT> {
     /// returns an iterator over the keys of the structure in no particular
     /// order
     pub fn keys(&'a self) -> KeyIter<'a, KT> {
@@ -724,11 +724,18 @@ impl<'a, KT: Hash + Eq, VT: Ord> HashHeap<KT, VT> {
     pub fn iter(&'a self) -> KeyValIter<'a, KT, VT> {
         KeyValIter { hh: self, index: 0 }
     }
+
+    /// returns a consuming iterator over `(key,value)` in order of
+    /// priority (via [Self::pop]).  The hashheap will be emptied by
+    /// the iterator
+    pub fn priority_stream(&'a mut self) -> PriorityQueue<'a,KT,VT> {
+       PriorityQueue(self)
+    }
 } // impl iterators
 
 /// The IntoIterator for references is the same as calling [HashHeap::iter],
 /// and will therefore return references in **arbitrary order**.
-impl<'t, KT: Hash + Eq, VT: Ord> IntoIterator for &'t HashHeap<KT, VT> {
+impl<'t, KT: Hash + Eq, VT: PartialOrd> IntoIterator for &'t HashHeap<KT, VT> {
     type Item = (&'t KT, &'t VT);
     type IntoIter = KeyValIter<'t, KT, VT>;
 
@@ -745,7 +752,7 @@ impl<'t, KT: Hash + Eq, VT: Ord> IntoIterator for &'t HashHeap<KT, VT> {
 /// In constrast, the non-consuming iterators all enumerate references
 /// in arbitrary order.
 pub struct IntoIter<KT, VT>(HashHeap<KT, VT>);
-impl<KT: Hash + Eq, VT: Ord> Iterator for IntoIter<KT, VT> {
+impl<KT: Hash + Eq, VT: PartialOrd> Iterator for IntoIter<KT, VT> {
     type Item = (KT, VT);
     fn next(&mut self) -> Option<(KT, VT)> {
         self.0.pop()
@@ -754,7 +761,7 @@ impl<KT: Hash + Eq, VT: Ord> Iterator for IntoIter<KT, VT> {
 
 /// The consuming iterator is implemented by [IntoIter] and will return
 /// the owned values in **sorted order**
-impl<KT: Hash + Eq, VT: Ord> IntoIterator for HashHeap<KT, VT> {
+impl<KT: Hash + Eq, VT: PartialOrd> IntoIterator for HashHeap<KT, VT> {
     type Item = (KT, VT);
     type IntoIter = IntoIter<KT, VT>;
 
@@ -762,6 +769,17 @@ impl<KT: Hash + Eq, VT: Ord> IntoIterator for HashHeap<KT, VT> {
         IntoIter(self)
     }
 } // consuming iterator
+
+/// Non-consuming iterator, but will empty the heap via pop()
+pub struct PriorityQueue<'a,KT,VT>(&'a mut HashHeap<KT,VT>);
+impl<'a,KT: Hash + Eq, VT: PartialOrd> Iterator
+for PriorityQueue<'a,KT,VT>
+{
+  type Item = (KT,VT);
+  fn next(&mut self) -> Option<Self::Item> {
+    self.0.pop()
+  }
+}
 
 //////////testing
 #[cfg(test)]
