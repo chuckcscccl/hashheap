@@ -292,9 +292,40 @@ pub fn remove(&mut self, key:&KT) -> Option<(KT,VT)> {
     }
   }//peek
 
-  pub fn refresh(&mut self) {
-    // rehash keys, reposition values (expensive)
-    
-  }//refresh
-  
+  pub fn load_factor(&self) -> f32 {
+    (self.size as f32) / (CAP as f32)
+  }
+
+  pub fn resize<const NEWCAP:usize>(mut self) -> ConstHashHeap<KT,VT,NEWCAP> {
+    let mut hp2 = ConstHashHeap::new(true);
+    hp2.lessthan = self.lessthan;
+    hp2.size = self.size;
+    for i in 0..self.size {
+      let mut h = 0;
+      if let Some((_,ki)) = &self.vals[i] {
+         self.keys[*ki].as_ref().map(|(key,vi)|{
+           let h0 = hp2.hash(key);
+           h = h0;
+           let mut hashes = 1;
+           loop {
+             match hp2.keys[h] {
+               Some(_) => {
+                 h = (h+1) % NEWCAP;
+                 hashes += 1;
+               },
+               None => {
+                 break;
+               },
+             }//match
+           }//loop
+           hp2.maxhs[h0] = hashes;
+         });
+         std::mem::swap(&mut hp2.keys[h],&mut self.keys[*ki]);
+         self.vals[i].as_mut().map(|p|{p.1 = h;});
+      } // if-let
+      std::mem::swap(&mut hp2.vals[i], &mut self.vals[i]);      
+    }//for
+    hp2
+  }//resize
+
 }// main impl
