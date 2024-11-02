@@ -6,7 +6,7 @@
 //! internal changes that should improve performance.  Rust HashMaps are
 //! no longer employed anywhere.  Instead, each ConstHashHeap contains
 //! two arrays, keys and values.  The keys array contains (Option) entries of
-//! form (key,vi) where vi is the index in the values array that contains
+//! the form (key,vi) where vi is the index in the values array that contains
 //! the mapped value.  The values array contains entries of the form
 //! (value,ki) where ki is the index in the keys array of the corresponding
 //! key.  The keys array is treated as a closed hashmap (open addressing)
@@ -398,7 +398,8 @@ impl<KT:Display+Debug+Hash+Eq, VT:Display+Debug+PartialOrd, const CAP:usize> Con
   /// the performance of searching for a key.  The diagnostics procedure 
   /// returns the average number of hash- and rehash operations required
   /// starting from an original hash index.  The smaller the number (closer
-  /// to one) the better the performance.  Note that the procedure
+  /// to one) the better the performance.  A large average suggests that
+  /// [Self::resize] or [Self::refresh] is needed. Note that the procedure
   /// is not a constant-time operation and is in fact O(capacity).
   /// The boolean argument gives the
   /// option of printing the arrays underneath (not recommended).
