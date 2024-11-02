@@ -1,4 +1,4 @@
-//! A ***[HashHeap]*** is a data structure that merges a priority heap with
+//! A ***HashHeap*** is a data structure that merges a priority heap with
 //! a hash table.  One of the drawbacks of priority queues implemented with
 //! binary heaps is that searching requires O(n) time. Other operations
 //! such as arbitrary removal or replacement of values thus also require O(n).
@@ -27,8 +27,9 @@
 //! in O(log n) time with a HashHeap.
 //!
 //! Two versions of the data structure are provided.
-//! **Their documentations are found under structs
-//! [HashHeap] and [ConstHashHeap].**
+//! **Their documentation are found under structs
+//! [HashHeap] and [ConstHashHeap].**  The [consthashheap] module
+//! was added in Version 0.2.
 //!
 //! Because the mutation of values will require them to be repositioned in
 //! the heap, certain expected methods are not available, including `get_mut`
@@ -46,7 +47,7 @@
 //!
 //! Examples
 //! ```
-//! # use hashheap::*;
+//!    use hashheap::*;
 //!    let mut priority_map = HashHeap::<&str,u32>::new_minheap();
 //!    priority_map.insert("A", 4);   // O(1) average, O(log n) worst
 //!    priority_map.insert("B", 2);
@@ -66,6 +67,25 @@
 //!    assert_eq!(priority_map.pop(), Some(("F",4)));    
 //!    assert_eq!(priority_map.pop(), Some(("A",6)));    
 //!    assert_eq!(priority_map.len(), 0);
+//!
+//!    // version of structure with const capacity 8:
+//!    let mut points = ConstHashHeap::<&str,f32,8>::new(true); // true=maxheap
+//!    points.insert("mary",3.0);
+//!    points.insert("larz",2.0);
+//!    points.insert("narx",2.5);
+//!    points.insert("parv",3.4);
+//!    let mut morepoints = points.resize::<16>();  //to larger capacity
+//!    morepoints.insert("oarw",3.7);
+//!    morepoints.insert("qaru",2.6);
+//!    morepoints.insert("nev",0.2);
+//!    morepoints = morepoints.refresh();
+//!    morepoints.remove(&"narx");
+//!    morepoints.modify(&"larz",|x|*x += 1.2);
+//!    assert_eq!(morepoints.get(&"qaru"), Some(&2.6));
+//!    assert_eq!(morepoints.get(&"larz"), Some(&3.2));
+//!    assert!(morepoints.get(&"narx").is_none());
+//!    assert_eq!(morepoints.pop(), Some(("oarw",3.7)));
+//!    assert_eq!(morepoints.size(), 5);
 //! ```    
 /*
 Theory stuff:

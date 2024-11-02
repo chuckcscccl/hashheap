@@ -47,6 +47,7 @@ fn optcmp<VT:PartialOrd>(a:&Option<(VT,usize)>, b:&Option<(VT,usize)>, neg:bool)
   }
 }
 
+/// A version of hashheap map with const capacity.
 /// The default capacity of a ConstHashHeap is 1024.  Exact powers of
 /// two are recommended for other capacities.  Resizing is recommended
 /// when the [ConstHashHeap::load_factor] function returns a value greater 
@@ -157,14 +158,12 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
           break;
         },
         Some(_) => { h = Self::rehash(h); hashes+=1; },
-        None if hashes <= self.maxhashes[h0] => {
+        None if hashes < self.maxhashes[h0] => {
           if target_index == -1 { target_index = h as isize; }
           h=Self::rehash(h);
           hashes += 1;
         },
         None => {
-          //self.keys[h] = Some((key,self.size-1));
-          // push Some((val,h)) on heap, get location
           keyfoundloc = Some(self.size);
           break;
         },
@@ -210,15 +209,11 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
           answer = self.vals[*vi].as_ref().map(|p|&p.0);
           break;
         },
-        Some(_) => {
-          h=Self::rehash(h);
-          hashes += 1;
-        },
-        None if hashes <= self.maxhashes[h0] => {
+        _ if hashes < self.maxhashes[h0] => {
           h=Self::rehash(h);
           hashes += 1;        
         }
-        None => { break; }
+        _ => { break; }
       }//match
     }//loop
     answer
@@ -226,8 +221,9 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
 
   /// modifies the entry associated with the key, if it exists, using
   /// the provided closure.  This procedure will adjust the position of
-  /// of the entry in the priority heap after modification. This
-  /// operation is O(log n) plus the cost of calling the closure.
+  /// of the entry in the priority heap after modification. Returns true
+  /// on successful modification and false if key was not found.
+  /// This operation is O(log n) plus the cost of calling the closure.
   pub fn modify<F:FnOnce(&mut VT)>(&mut self, key:&KT, f:F) -> bool {
     let h0 = self.hash(&key);
     let mut h = h0;
@@ -239,15 +235,11 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
           keyfoundloc = Some(*vi);
           break;
         },
-        Some(_) => {
-          h=Self::rehash(h);
-          hashes += 1;
-        },
-        None if hashes <= self.maxhashes[h0] => {
+        _ if hashes < self.maxhashes[h0] => {
           h=Self::rehash(h);
           hashes += 1;        
         }
-        None => { break; }
+        _ => { break; }
       }//match
     }//loop
     if let Some(vi) = keyfoundloc {
@@ -272,15 +264,11 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
           keyfoundloc = Some(*vi);
           break;
         },
-        Some(_) => {
-          h=Self::rehash(h);
-          hashes += 1;
-        },
-        None if hashes <= self.maxhashes[h0] => {
+        _ if hashes < self.maxhashes[h0] => {
           h=Self::rehash(h);
           hashes += 1;        
         }
-        None => { break; }
+        _ => { break; }
       }//match
     }//loop
     if let Some(vi) = keyfoundloc {
@@ -299,7 +287,7 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
     answer
   }//remove
 
-  /// remove and return the highest-priority key-value pair
+  /// remove and return the highest-priority key-value pair. O(log n).
   pub fn pop(&mut self) -> Option<(KT,VT)> {
     let mut answer = None;
     if self.size < 1 { return answer; }
@@ -404,13 +392,37 @@ for ConstHashHeap<KT,VT,CAP>
 
 impl<KT:Display+Debug+Hash+Eq, VT:Display+Debug+PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP>
 {
-  /// for debugging
-  pub fn diagnostics(&self) {
+  /// For debugging and performance statistics.  The implementation uses a
+  /// separate array to keep track of the maximum number of rehash
+  /// operations required starting from an original hash index.  This improves
+  /// the performance of searching for a key.  The diagnostics procedure 
+  /// returns the average number of hash- and rehash operations required
+  /// starting from an original hash index.  The smaller the number (closer
+  /// to one) the better the performance.  Note that the procedure
+  /// is not a constant-time operation and is in fact O(capacity).
+  /// The boolean argument gives the
+  /// option of printing the arrays underneath (not recommended).
+ pub fn diagnostics(&self, print:bool) -> f32 {
+
+   // compute average number of hashes from maxhashes
+   let mut mx = 0;
+   let mut hashes = 0;
+   for i in 0..CAP {
+      if self.maxhashes[i] > 0 {
+        mx += 1;
+        hashes += self.maxhashes[i];
+      }
+   }
+   let ave_hashes = if mx==0 {0.0} else {(hashes as f32) / (mx as f32)};
+   if print {
+    println!("---  table ---");
     for i in 0..CAP {
-      println!("{i}: {:?}, \t {:?} \t hash {}",&self.keys[i],&self.vals[i],
-       self.keys[i].as_ref().map(|p|self.hash(&p.0).to_string()).unwrap_or(String::new()));
+      println!("{i}: {:?}, \t {:?} \t hash {}   maxhs {}",&self.keys[i],&self.vals[i],
+       self.keys[i].as_ref().map(|p|self.hash(&p.0).to_string()).unwrap_or(String::new()),self.maxhashes[i]);
     }
-    println!("--- size {}, capacity {} ---",self.size,CAP);
+    println!("--table size {}, capacity {}, average number of hash/rehashes: {}--", self.size, CAP, ave_hashes);
+   }//print
+   ave_hashes
   }//diagnostics
 }//diagnostics
 
