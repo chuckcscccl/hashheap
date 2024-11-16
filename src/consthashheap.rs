@@ -59,7 +59,7 @@ pub struct ConstHashHeap<KT,VT, const CAPACITY:usize = 1024>
    vals : [Option<(VT,usize)>;CAPACITY],
    maxhashes : [usize;CAPACITY], // max number of hashes from start
    size : usize,
-   autostate: RefCell<RandomState>,
+   autostate: RandomState,
    lessthan : fn(&Option<(VT,usize)>,&Option<(VT,usize)>) -> bool,
 }
 impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
@@ -69,22 +69,27 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
   pub fn new(maxheap:bool) -> Self {
     ConstHashHeap {
       keys : [const { None }; CAP],
-      vals : std::array::from_fn(|_|None),
+      vals : [const { None }; CAP], //std::array::from_fn(|_|None),
       maxhashes : [0;CAP],
       size : 0,
-      autostate : RefCell::new(RandomState::new()),
+      autostate : RandomState::new(),
       lessthan : if maxheap{|a,b|optcmp(a,b,true)} else {|a,b|optcmp(a,b,false)},
     }
-  }
-  
+  }//new
+
   fn hash(&self,key:&KT) -> usize {
-     let mut rs = &mut *self.autostate.borrow_mut();
-     let mut bs = rs.build_hasher();
+     let mut bs = self.autostate.build_hasher(); //rs.build_hasher();
      key.hash(&mut bs);
      (bs.finish() as usize) % CAP
   }
 
   fn rehash(h:usize) -> usize { (h+1) % CAP }
+
+  fn borrow_hash(&self, key:&KT, rs:&RandomState) -> usize {
+     let mut bs = rs.build_hasher();
+     key.hash(&mut bs);
+     (bs.finish() as usize) % CAP
+  }
 
   fn swap(&mut self, i:usize, k:usize) {
     self.vals.swap(i,k);
@@ -331,7 +336,7 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
       let mut h = 0;
       if let Some((_,ki)) = &self.vals[i] {
          self.keys[*ki].as_ref().map(|(key,vi)|{
-           let h0 = hp2.hash(key);
+           let h0 = hp2.borrow_hash(key,&self.autostate);
            h = h0;
            let mut hashes = 1;
            loop {
@@ -352,6 +357,7 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
       } // if-let
       core::mem::swap(&mut hp2.vals[i], &mut self.vals[i]);      
     }//for
+    hp2.autostate = self.autostate;
     hp2
   }//resize
 
