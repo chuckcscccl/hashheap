@@ -55,4 +55,5 @@ Examples:
   assert_eq!(priority_map.len(), 0);
 ```
 
-Version 0.2 adds an alternative implementation with const capacity.
+Version 0.2 adds an alternative implementation with const capacity and
+many performance enhancements.

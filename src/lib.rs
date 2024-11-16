@@ -129,9 +129,7 @@ fn parent(i: usize) -> usize {
     }
 }
 
-fn derive_hash<T: Hash + Eq>(rs: &mut RandomState, key: &T) -> usize {
-    //let mut rs = hs.hasher() as & dyn std::hash::BuildHasher<Hasher:Hasher>;
-    //let mut rs = RandomState::new();
+fn derive_hash<T: Hash + Eq>(rs: &RandomState, key: &T) -> usize {
     let mut bs = rs.build_hasher();
     key.hash(&mut bs);
     bs.finish() as usize
@@ -149,7 +147,7 @@ pub struct HashHeap<KT, VT> {
     rehash: fn(usize, usize) -> usize, // hashi,collisions -> newhashi
     kmap: HashMap<usize, (usize, usize)>, // hashindex to (ki,vi)
     lessthan: fn(&VT, &VT) -> bool,
-    autostate: RefCell<RandomState>,
+    autostate: RandomState,
     minmax: bool, // record if it's min or max heap
 }
 impl<KT: Hash + Eq, VT: PartialOrd> HashHeap<KT, VT> {
@@ -167,7 +165,7 @@ impl<KT: Hash + Eq, VT: PartialOrd> HashHeap<KT, VT> {
             userhash: None,
             rehash: |h, c| h + c,
             lessthan: |a, b| a < b,
-            autostate: RefCell::new(RandomState::new()),
+            autostate: RandomState::new(),
             minmax: maxheap,
         };
         if !maxheap {
@@ -244,7 +242,7 @@ impl<KT: Hash + Eq, VT: PartialOrd> HashHeap<KT, VT> {
 
     fn autohash(&self, key: &KT) -> usize {
         self.userhash
-            .map_or(derive_hash(&mut *self.autostate.borrow_mut(), key),
+            .map_or(derive_hash(&self.autostate, key),
                     |f| { f(key) }
              )
     } //autohash
@@ -291,7 +289,6 @@ impl<KT: Hash + Eq, VT: PartialOrd> HashHeap<KT, VT> {
     pub fn insert(&mut self, key: KT, val: VT) -> Option<(KT, VT)> {
         let (h, exists) = self.findslot(&key);
         if exists {
-            /* must replace value and reposition within heap !!!!!!!!!!! */
             let (ki, vi) = *self.kmap.get(&h).unwrap();
             let mut newkey = Some(key);
             let mut newval = (val, h);
@@ -579,7 +576,7 @@ impl<KT: Hash + Eq, VT: PartialOrd> HashHeap<KT, VT> {
         self.vals.clear();
         self.keys.clear();
         self.kmap.clear();
-        self.autostate.replace(RandomState::new());
+        self.autostate = RandomState::new();
     } //clear
 
     /// returns true if the structure is a max-hashheap and false if it's a

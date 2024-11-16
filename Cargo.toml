@@ -1,6 +1,6 @@
 [package]
 name = "hashheap"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 license = "MIT"
 description = "data structures that combine a hashmap and a min/max priority heap, with main operations requiring O(1) or O(log n) time."

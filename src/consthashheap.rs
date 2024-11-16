@@ -15,7 +15,19 @@
 //! the corresponding information in the keys array using the ki index
 //! which it possesses.  The ki index does not change until the entire
 //! structure is resized.
-
+//!
+//! The internal structure of the implementation allows for the following
+//! benefit.  The indices of keys in the internal hash array do not change
+//! unless removed.  Several functions including [ConstHashHeap::set_at],
+//! [ConstHashHeap::and_generate] and [ConstHashHeap::modify_at]
+//! returns the internal index where the key was found or inserted.  This
+//! index can then be used by functions such as [ConstHashHeap::get_at]
+//! to lookup the hash table quickly, without the hashing/probing process.
+//! If the key is no longer at the expected location, then the normal
+//! hash lookup procedure take place.  Even when a [ConstHashHeap] is
+//! resized and copied to a structure of a different capacity, the hash
+//! indices *may* still be valid: the same [RandomState] used by the
+//! hash function is transferred to the new structure.
 
 #![allow(dead_code)]
 #![allow(unused_variables)]
@@ -47,7 +59,7 @@ fn optcmp<VT:PartialOrd>(a:&Option<(VT,usize)>, b:&Option<(VT,usize)>, neg:bool)
   }
 }
 
-/// A version of hashheap map with const capacity.
+/// A version of hashheap map with const capacity: see [module documentation](crate::consthashheap) for overview.
 /// The default capacity of a ConstHashHeap is 1024.  Exact powers of
 /// two are recommended for other capacities.  Resizing is recommended
 /// when the [ConstHashHeap::load_factor] function returns a value greater 
@@ -195,7 +207,75 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
     true
   }//set
 
-  /// alias for [Self::insert]
+
+  // also returns where modified/inserted in keys
+  fn find_and<F>(&mut self, key:KT, modifier:F)
+     -> (Option<VT>, Option<usize>) where F: FnOnce(Option<&VT>) -> VT
+  {
+    let mut valpos = None; // vi position
+    let h0 = self.hash(&key);
+    let mut h = h0;
+    let mut hashes = 1;
+    let mut reuse_index = -1;
+    loop {
+      match &self.keys[h] {
+        Some((k,vi)) if k==&key => {
+          valpos = Some(*vi);
+          break;
+        },
+        Some(_) => { h = Self::rehash(h); hashes+=1; },
+        None if hashes < self.maxhashes[h0] => {
+          if reuse_index == -1 { reuse_index = h as isize; }
+          h=Self::rehash(h);
+          hashes += 1;
+        },
+        None => {
+          valpos = Some(self.size);
+          break;
+        },
+      }//match
+    }// loop
+    match &valpos {  // reuse slot
+      Some(vi) if *vi==self.size && self.size >= CAP => {
+        return (None, None);
+      }
+      Some(vi) if *vi == self.size => {
+        self.size+=1;
+        if reuse_index>=0 {h = reuse_index as usize;}
+      },
+      _ => {},
+    }//match
+    if hashes > self.maxhashes[h0] {
+      self.maxhashes[h0] = hashes;
+    }
+    let mut swaptmp = None;
+    if let Some(vi) = valpos {
+        self.keys[h] = Some((key,vi));
+        std::mem::swap(&mut self.vals[vi], &mut swaptmp);
+        self.vals[vi] = Some((modifier(swaptmp.as_ref().map(|(v,_)|v)), h)); 
+        self.adjust(vi, vi+1<self.size);
+    }
+    (swaptmp.map(|p|p.0), Some(h))
+  }//find_and
+
+  /// Inserts new key with value determined by the supplied closure,
+  /// which is applied to the existing value associated with the key,
+  /// if it exists.  The function returns the *hash index* of where
+  /// the insertion occurred.  This index can be used by functions such
+  /// as [modify_at](Self::modify_at) and [get_at](Self::get_at) for quicker hash lookup.
+  /// None is returned only if capacity was reached.
+    pub fn and_generate<F>(&mut self, key:KT, generator:F) -> Option<usize>
+  where F: FnOnce(Option<&VT>) -> VT
+  {  self.find_and(key,generator).1
+  }
+  /// Insert or modify key-value pair, returns *hash index* of insertion
+  /// for quicker access, similar to [and_generate](Self::and_generate).
+  pub fn set_at(&mut self, key:KT, val:VT) -> Option<usize>
+  {
+    self.find_and(key, |_|val).1
+  }
+
+  /// alias for [insert](Self::insert)
   pub fn push(&mut self, key:KT, val:VT) -> bool {  // alias for insert
      self.insert(key,val)
   }
@@ -204,7 +284,30 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
   /// This operation is also called in the implementation of the [core::ops::Index]
   /// trait. This is an O(log n) operation.
   pub fn get(&self, key:&KT) -> Option<&VT> {
+    self.getopt(None,key)
+  }
+
+  /// Possibly faster version of `get`.
+  /// First checks if key at the supplied hash index matches the provided key
+  /// before defaulting to the algorithm for hash lookup used by `get`.
+  pub fn get_at(&self, index:usize, key:&KT) -> Option<&VT> {
+    self.getopt(Some(index), key)
+  }
+  
+  fn getopt(&self, iopt:Option<usize>, key:&KT) -> Option<&VT> {  
     let mut answer = None;
+    match iopt {
+       Some(h) if h<self.keys.len() => {
+         match &self.keys[h] {
+           Some((k,vi)) if k==key => {
+             return self.vals[*vi].as_ref().map(|p|&p.0);
+           },
+           _ => {},
+         }//match
+       },
+       _ => {},
+    }//match
+    // if did not return
     let h0 = self.hash(&key);
     let mut h = h0;
     let mut hashes = 1;
@@ -230,14 +333,44 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
   /// on successful modification and false if key was not found.
   /// This operation is O(log n) plus the cost of calling the closure.
   pub fn modify<F:FnOnce(&mut VT)>(&mut self, key:&KT, f:F) -> bool {
+     self.modify_opt(None,key,f).is_some()
+  }// modify
+
+  /// Version of [modify](Self::modify) that takes an index as *hint* to where to
+  /// find the key.  If the key is not found at the hinted location, usual
+  /// hash lookup takes place.  The index where the modification occurred
+  /// is returned, or None if the key was not found.
+  pub fn modify_at<F>(&mut self, index:usize, key:&KT, f:F) -> Option<usize>  
+  where F:FnOnce(&mut VT)
+  {
+    self.modify_opt(Some(index),key,f)
+  }
+  
+  fn modify_opt<F>(&mut self, iopt:Option<usize>, key:&KT, f:F) -> Option<usize>
+  where F:FnOnce(&mut VT)
+  {
+    match iopt {
+      Some(h) if h < self.keys.len() => {
+        match &self.keys[h] {
+           Some((k,vi)) if k==key => {
+             self.vals[*vi].as_mut().map(|p|f(&mut p.0));
+             self.adjust(*vi, vi+1<self.size);
+             return Some(h);
+           },
+           _ => {},
+        }//match
+      },
+      _ => {},
+    }//match
+    // if did not return  
     let h0 = self.hash(&key);
     let mut h = h0;
     let mut hashes = 1;
-    let mut keyfoundloc = None;
+    let mut valpos = None;
     loop {
       match &self.keys[h] {
         Some((k,vi)) if k==key => {
-          keyfoundloc = Some(*vi);
+          valpos = Some(*vi);
           break;
         },
         _ if hashes < self.maxhashes[h0] => {
@@ -247,36 +380,65 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
         _ => { break; }
       }//match
     }//loop
-    if let Some(vi) = keyfoundloc {
+    if let Some(vi) = valpos {
       self.vals[vi].as_mut().map(|p|f(&mut p.0));
       self.adjust(vi, vi+1<self.size);
-      true
+      Some(h)
     }
-    else {false}
-  }// modify
+    else {None}
+  }//index_modify
+
+
 
   /// remove and return the key-value pair associated with the key.
   /// O(log n)
   pub fn remove(&mut self, key:&KT) -> Option<(KT,VT)> {
+    self.remove_opt(None,key)
+  }
+
+  /// Version of [remove](Self::remove) that takes a index hinting at the location of the
+  /// key inside the hash table's array.  If the key is not found at the
+  /// hinted location, then normal hash lookup take place.
+  pub fn remove_at(&mut self, index:usize, key:&KT) -> Option<(KT,VT)> {
+    self.remove_opt(Some(index),key)
+  }  
+  
+  fn remove_opt(&mut self, iopt:Option<usize>, key:&KT) -> Option<(KT,VT)> {
     let mut answer = None;
-    let mut keyfoundloc = None;    
-    let h0 = self.hash(&key);
-    let mut h = h0;
-    let mut hashes = 1;
-    loop {
-      match &self.keys[h] {
-        Some((k,vi)) if k==key => {
-          keyfoundloc = Some(*vi);
-          break;
-        },
-        _ if hashes < self.maxhashes[h0] => {
-          h=Self::rehash(h);
-          hashes += 1;        
-        }
-        _ => { break; }
-      }//match
-    }//loop
-    if let Some(vi) = keyfoundloc {
+    let mut valpos = None;
+    let mut h = 0; // dummy value
+    match iopt {
+      Some(idx) if idx < self.keys.len() => {
+        match &self.keys[idx] {
+          Some((k,vi)) if k==key => {
+            valpos = Some(*vi);
+            h = idx;
+          },
+          _ => {},
+        }//match
+      }
+      _ => {},
+    }//match
+    if valpos.is_none() {
+      let h0 = self.hash(&key);
+      h = h0;
+      let mut hashes = 1;
+      loop {
+        match &self.keys[h] {
+          Some((k,vi)) if k==key => {
+            valpos = Some(*vi);
+            break;
+          },
+          _ if hashes < self.maxhashes[h0] => {
+            h=Self::rehash(h);
+            hashes += 1;        
+          }
+          _ => { break; }
+        }//match
+      }//loop
+    } // quick lookup failed.
+    
+    if let Some(vi) = valpos {
        let mut ak = None;
        let mut av = None;
        core::mem::swap(&mut ak, &mut self.keys[h]);
@@ -378,7 +540,7 @@ impl<KT:Hash+Eq, VT:PartialOrd, const CAP:usize> ConstHashHeap<KT,VT,CAP> {
   }//iter
 
   /// returns a consuming iterator over all entries in order of priority.
-  /// This iterator is equivalent to repeatedly calling [Self::pop], and
+  /// This iterator is equivalent to repeatedly calling [pop](Self::pop), and
   /// will empty the structure of all entries.
   pub fn priority_stream<'a>(&'a mut self) -> PriorityStream<'a,KT,VT,CAP> {
     PriorityStream(self)
