@@ -57,3 +57,6 @@ Examples:
 
 Version 0.2 adds an alternative implementation with const capacity and
 many performance enhancements.
+
+Version 0.3 adds a set alternative (to map).
+

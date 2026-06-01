@@ -26,10 +26,9 @@
 //! is found, its position in the queue must be updated.  This is possible
 //! in O(log n) time with a HashHeap.
 //!
-//! Two versions of the data structure are provided.
+//! Three versions of the data structure are provided.
 //! **Their documentation are found under structs
-//! [HashHeap] and [ConstHashHeap].**  The [consthashheap] module
-//! was added in Version 0.2.
+//! [HashHeap], [ConstHashHeap] and [HashHeapSet].** 
 //!
 //! Because the mutation of values will require them to be repositioned in
 //! the heap, certain expected methods are not available, including `get_mut`
@@ -111,6 +110,9 @@ use std::hash::{BuildHasher, Hash, Hasher};
 
 pub mod consthashheap;
 pub use consthashheap::*;
+
+pub mod hashheapset;
+pub use hashheapset::*;
 
 const DEFAULTCAP: usize = 16;
 
@@ -825,5 +827,13 @@ mod tests {
         for (key, val) in priority_map {
             println!("consuming iterator key {} : val {}", key, val);
         }
+
+        let mut set = HashHeapSet::<char>::new_minheap();
+        for c in ['K','B','G','C','D','J','L','N','Q','H'] { set.insert(c); }
+        assert!(set.contains(&'C'));
+        assert!(!set.contains(&'E'));
+        assert_eq!(set.peek(),Some(&'B'));
+        //assert_eq!(set.pop(),Some('B'));        
+        //assert_eq!(set.peek(),Some(&'C'));                
     } //it_works
 } //tests module
