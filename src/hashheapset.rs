@@ -77,11 +77,11 @@ impl<T:Hash+Eq+PartialOrd> HashHeapSet<T> {
 
   /// conveniently creates a new maxheap with an initial capacity of 16
   pub fn new_maxheap() -> Self {
-    Self::with_capacity(16,true)
+    Self::with_cap(16,true)
   }
   /// conveniently creates a new minheap with an initial capacity of 16  
   pub fn new_minheap() -> Self {
-    Self::with_capacity(16,false)
+    Self::with_cap(16,false)
   }
 
   /// converts a vector into a heap using the heapify algorithm, skips
