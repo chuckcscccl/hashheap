@@ -19,6 +19,7 @@ use core::cmp::Ord;
 use core::fmt::{Display,Debug};
 use std::collections::hash_map::RandomState;
 use core::hash::{BuildHasher, Hash, Hasher};
+use core::convert::From;
 
 //global heap calculations
 fn left(i:usize) -> usize { 2*i+1 }
@@ -87,11 +88,11 @@ impl<T:Hash+Eq+PartialOrd> HashHeapSet<T> {
   /// duplicates.  ismax=true indicates maxheap.
   pub fn from(mut v:Vec<T>, ismax:bool) -> Self {
     let mut set = Self::with_capacity(v.len()*2,ismax);
+    let mut vi = 0;
     while let Some(x) = v.pop() {
       let h0 = set.hash(&x);
       let mut h = h0;
       let mut hashes = 1;
-      let mut vi = 0;
       loop {
         match &set.table[h] {
           Some((w,_)) if &x==w => {break;},
